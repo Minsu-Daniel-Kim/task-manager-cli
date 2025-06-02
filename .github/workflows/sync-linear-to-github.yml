@@ -1,0 +1,156 @@
+name: Sync Linear Issues to GitHub
+
+on:
+  # Manual trigger to sync Linear issues
+  workflow_dispatch:
+    inputs:
+      linear_issue_id:
+        description: 'Linear Issue ID (e.g., TEA-18) - leave empty to sync all recent issues'
+        required: false
+        type: string
+      
+  # Scheduled sync (runs every hour to catch new Linear issues)
+  schedule:
+    - cron: '0 * * * *'  # Every hour
+
+jobs:
+  sync-linear-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Fetch Linear Issues and Create GitHub Issues
+        run: |
+          echo "Starting Linear to GitHub issue sync..."
+          
+          # Determine which issues to sync
+          if [[ -n "${{ github.event.inputs.linear_issue_id }}" ]]; then
+            # Sync specific issue
+            LINEAR_FILTER="{ identifier: { eq: \"${{ github.event.inputs.linear_issue_id }}\" } }"
+            echo "Syncing specific issue: ${{ github.event.inputs.linear_issue_id }}"
+          else
+            # Sync recent issues (last 24 hours) that don't have GitHub issues
+            YESTERDAY=$(date -d '24 hours ago' -u '+%Y-%m-%dT%H:%M:%S.%3NZ')
+            LINEAR_FILTER="{ createdAt: { gte: \"$YESTERDAY\" } }"
+            echo "Syncing issues created since: $YESTERDAY"
+          fi
+          
+          # Fetch Linear issues
+          LINEAR_RESPONSE=$(curl -s -X POST https://api.linear.app/graphql \
+            -H "Authorization: Bearer ${{ secrets.LINEAR_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"query\": \"query(\$filter: IssueFilter!) { 
+                issues(filter: \$filter) { 
+                  nodes {
+                    id, identifier, title, description, 
+                    priority { name, value }, 
+                    state { name, type },
+                    assignee { name, email },
+                    project { name },
+                    team { name },
+                    url,
+                    createdAt,
+                    updatedAt
+                  }
+                }
+              }\",
+              \"variables\": { \"filter\": $LINEAR_FILTER }
+            }")
+          
+          echo "Linear API Response: $LINEAR_RESPONSE"
+          
+          # Process each Linear issue
+          echo "$LINEAR_RESPONSE" | jq -r '.data.issues.nodes[] | @base64' | while read encoded_issue; do
+            issue=$(echo "$encoded_issue" | base64 --decode)
+            
+            ISSUE_ID=$(echo "$issue" | jq -r '.identifier')
+            ISSUE_TITLE=$(echo "$issue" | jq -r '.title')
+            ISSUE_DESC=$(echo "$issue" | jq -r '.description // ""')
+            ISSUE_PRIORITY=$(echo "$issue" | jq -r '.priority.name // "Medium"')
+            ISSUE_STATE=$(echo "$issue" | jq -r '.state.name')
+            ISSUE_URL=$(echo "$issue" | jq -r '.url')
+            ASSIGNEE=$(echo "$issue" | jq -r '.assignee.name // "Unassigned"')
+            PROJECT=$(echo "$issue" | jq -r '.project.name // "No Project"')
+            
+            echo "Processing Linear issue: $ISSUE_ID - $ISSUE_TITLE"
+            
+            # Check if GitHub issue already exists
+            EXISTING_ISSUE=$(gh issue list --search "$ISSUE_ID" --json number,title,body | jq -r '.[] | select(.title | contains("'$ISSUE_ID'")) | .number')
+            
+            if [[ -n "$EXISTING_ISSUE" ]]; then
+              echo "GitHub issue already exists for $ISSUE_ID: #$EXISTING_ISSUE"
+              continue
+            fi
+            
+            # Create GitHub issue body with Linear context
+            GITHUB_BODY="## 🔗 Linear Issue
+            
+            **Linear Issue**: [$ISSUE_ID: $ISSUE_TITLE]($ISSUE_URL)
+            
+            **Project**: $PROJECT
+            **Priority**: $ISSUE_PRIORITY  
+            **Assignee**: $ASSIGNEE
+            **Status**: $ISSUE_STATE
+            
+            ## Requirements
+            
+            $ISSUE_DESC
+            
+            ---
+            
+            **Note**: This GitHub issue is automatically synced from Linear. 
+            - Original Linear issue: $ISSUE_URL
+            - Use \`$ISSUE_ID\` in branch names and commits
+            - Status updates will sync back to Linear
+            
+            @claude This issue is ready for implementation. Please review the Linear requirements above and proceed with development."
+            
+            # Create GitHub issue
+            echo "Creating GitHub issue for $ISSUE_ID..."
+            GITHUB_ISSUE_URL=$(gh issue create \
+              --title "$ISSUE_ID: $ISSUE_TITLE" \
+              --body "$GITHUB_BODY" \
+              --label "linear-sync,enhancement" \
+              --assignee "${{ github.actor }}")
+            
+            if [[ $? -eq 0 ]]; then
+              echo "✅ Created GitHub issue: $GITHUB_ISSUE_URL"
+              
+              # Optional: Comment back on Linear issue
+              LINEAR_COMMENT="🐙 **GitHub Issue Created**
+              
+              A corresponding GitHub issue has been automatically created:
+              $GITHUB_ISSUE_URL
+              
+              This enables Claude Code GitHub Actions to work with full Linear context.
+              Development work will be tracked in both platforms."
+              
+              curl -s -X POST https://api.linear.app/graphql \
+                -H "Authorization: Bearer ${{ secrets.LINEAR_API_KEY }}" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"query\": \"mutation(\$issueId: String!, \$body: String!) { 
+                    commentCreate(input: { issueId: \$issueId, body: \$body }) { 
+                      success 
+                    } 
+                  }\",
+                  \"variables\": { 
+                    \"issueId\": \"$(echo "$issue" | jq -r '.id')\", 
+                    \"body\": \"$LINEAR_COMMENT\" 
+                  }
+                }" > /dev/null
+              
+            else
+              echo "❌ Failed to create GitHub issue for $ISSUE_ID"
+            fi
+            
+            echo "---"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
