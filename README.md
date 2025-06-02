@@ -32,32 +32,170 @@ pip install -e .
 ## Quick Start
 
 ```bash
-# Create your first task
+# Create your first task interactively
 task add
+
+# Quick add with just a title
+task add --quick
 
 # List all tasks
 task list
 
-# Update a task status
-task update abc123 --status in_progress
+# List with summary statistics
+task list --summary
+
+# Show today's tasks and overdue items
+task today
+
+# Update a task (interactive mode)
+task update abc123 --interactive
 
 # Mark a task as done
 task done abc123
 
-# Search for tasks
-task search "project"
+# Clear all completed tasks
+task clear
 ```
 
 ## Commands
 
-### Basic Commands
+### Task Management
 
-- `task add` - Create a new task interactively
-- `task list` - List all tasks with filtering options
-- `task show <id>` - Display detailed information about a task
-- `task update <id>` - Update task properties
-- `task delete <id>` - Delete a task
-- `task done <id>` - Mark a task as complete
+#### `task add`
+Create a new task with interactive prompts for all fields.
+
+```bash
+# Interactive mode (default)
+task add
+
+# Quick mode - just enter title
+task add --quick
+```
+
+Features:
+- Priority levels with visual indicators (🟢 low, 🟡 medium, 🟠 high, 🔴 urgent)
+- Flexible due date input (YYYY-MM-DD, today, tomorrow, +7)
+- Tag validation and multi-tag support
+- Task summary preview before creation
+
+#### `task list`
+Display tasks in a beautiful table with filtering options.
+
+```bash
+# List all tasks
+task list
+
+# Filter by status
+task list --status todo
+task list -s in_progress
+
+# Filter by priority
+task list --priority high,urgent
+task list -p medium
+
+# Filter by tag
+task list --tag work
+task list -t bug
+
+# Show summary statistics
+task list --summary
+```
+
+#### `task show <id>`
+Display detailed information about a specific task.
+
+```bash
+# Default detailed view
+task show abc123
+
+# JSON format
+task show abc123 --format json
+
+# Markdown format
+task show abc123 --format markdown
+```
+
+#### `task update [id]`
+Update task properties with multiple options.
+
+```bash
+# Update specific fields
+task update abc123 --title "New Title" --priority high
+
+# Interactive mode - prompts for each field
+task update abc123 --interactive
+
+# Update without specifying ID (selection menu)
+task update
+
+# Add/remove tags
+task update abc123 --add-tag feature --remove-tag bug
+
+# Update due date
+task update abc123 --due-date tomorrow
+```
+
+#### `task delete [id]`
+Delete a task with confirmation.
+
+```bash
+# Delete with confirmation prompt
+task delete abc123
+
+# Skip confirmation
+task delete abc123 --force
+
+# Delete without ID (selection menu)
+task delete
+```
+
+#### `task done [id]`
+Mark a task as complete or undo completion.
+
+```bash
+# Mark as done
+task done abc123
+
+# Undo completion (mark as todo)
+task done abc123 --undo
+
+# Without ID (shows selection menu)
+task done
+```
+
+### Utility Commands
+
+#### `task today`
+Show tasks due today or overdue.
+
+```bash
+task today
+```
+
+Displays:
+- ⚠️ Overdue tasks (in red)
+- 📅 Tasks due today (in yellow)
+
+#### `task clear`
+Remove all completed tasks interactively.
+
+```bash
+task clear
+```
+
+Shows all completed tasks and asks for confirmation before deleting.
+
+#### `task stats`
+Display task statistics.
+
+```bash
+task stats
+```
+
+Shows breakdown by:
+- Status (todo, in_progress, done)
+- Priority (low, medium, high, urgent)
+- Total task count
 
 ### Filtering and Search
 

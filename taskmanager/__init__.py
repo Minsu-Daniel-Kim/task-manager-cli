@@ -2,7 +2,7 @@
 Task Manager CLI - A powerful command-line task management tool.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Daniel Kim"
 __email__ = "daniel@example.com"
 
