@@ -21,6 +21,7 @@ class TaskValidationError(Exception):
 class TaskManager:
     """
     Manages task operations (CRUD) with validation and error handling.
+    Now with persistent storage support.
     """
     
     def __init__(self, auto_save: bool = True):
