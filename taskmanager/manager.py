@@ -20,10 +20,13 @@ class TaskValidationError(Exception):
 class TaskManager:
     """
     Manages task operations (CRUD) with validation and error handling.
+    Now with persistent storage support.
     """
     
-    def __init__(self):
+    def __init__(self, auto_save: bool = True):
         self.tasks: Dict[str, Task] = {}
+        self.auto_save = auto_save
+        self._storage = None
     
     def _validate_title(self, title: str) -> None:
         """Validate task title."""
@@ -111,6 +114,7 @@ class TaskManager:
         )
         
         self.tasks[task.id] = task
+        self._auto_save()
         return task
     
     def get_task(self, task_id: str) -> Task:
@@ -193,6 +197,7 @@ class TaskManager:
         
         # Apply updates
         task.update(**kwargs)
+        self._auto_save()
         
         return task
     
@@ -211,6 +216,7 @@ class TaskManager:
         """
         task = self._find_task(task_id)
         del self.tasks[task.id]
+        self._auto_save()
         return task
     
     def mark_done(self, task_id: str) -> Task:
@@ -249,3 +255,24 @@ class TaskManager:
             stats['by_priority'][priority.value] = count
         
         return stats
+    
+    @property
+    def storage(self):
+        """Lazy-load storage instance."""
+        if self._storage is None:
+            from .storage import get_storage
+            self._storage = get_storage()
+        return self._storage
+    
+    def _auto_save(self) -> None:
+        """Save tasks if auto-save is enabled."""
+        if self.auto_save and self._storage:
+            self.storage.save_tasks(self)
+    
+    def save(self) -> None:
+        """Manually save tasks to storage."""
+        self.storage.save_tasks(self)
+    
+    def load(self) -> None:
+        """Load tasks from storage."""
+        self.storage.load_tasks(self)
