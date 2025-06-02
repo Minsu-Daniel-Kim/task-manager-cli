@@ -1,4 +1,4 @@
-name: Claude PR Assistant
+name: Claude PR Assistant with Linear Integration
 
 on:
   issue_comment:
@@ -19,18 +19,45 @@ jobs:
       (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: read
-      issues: read
+      contents: write
+      pull-requests: write
+      issues: write
       id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Extract Linear Issue Context
+        id: linear_context
+        run: |
+          # Extract TEA-XXX from issue/PR title and body
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            TITLE="${{ github.event.issue.title }}"
+            BODY="${{ github.event.issue.body }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            TITLE="${{ github.event.pull_request.title }}"
+            BODY="${{ github.event.pull_request.body }}"
+          fi
+          
+          LINEAR_ID=$(echo "$TITLE $BODY" | grep -o 'TEA-[0-9]\+' | head -1 || echo "")
+          echo "linear_id=$LINEAR_ID" >> $GITHUB_OUTPUT
+          
+          if [[ -n "$LINEAR_ID" ]]; then
+            echo "Found Linear issue: $LINEAR_ID"
+            echo "linear_context=Working on Linear issue $LINEAR_ID. Reference this in commits and implementation." >> $GITHUB_OUTPUT
+          fi
 
       - name: Run Claude PR Action
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
+        env:
+          LINEAR_CONTEXT: ${{ steps.linear_context.outputs.linear_context }}
+          
+      # Note: Linear's GitHub integration will automatically:
+      # - Link this PR to the Linear issue
+      # - Update Linear issue status based on PR status
+      # - Show PR progress in Linear interface
