@@ -7,6 +7,13 @@ __author__ = "Daniel Kim"
 __email__ = "daniel@example.com"
 
 from .models import Task, TaskStatus, TaskPriority
-from .manager import TaskManager
+from .manager import TaskManager, TaskNotFoundError, TaskValidationError
 
-__all__ = ["Task", "TaskStatus", "TaskPriority", "TaskManager"]
+__all__ = [
+    "Task", 
+    "TaskStatus", 
+    "TaskPriority", 
+    "TaskManager",
+    "TaskNotFoundError",
+    "TaskValidationError"
+]
