@@ -9,6 +9,7 @@ from rich.prompt import Prompt, Confirm
 from .manager import TaskManager, TaskNotFoundError, TaskValidationError
 from .models import TaskStatus, TaskPriority
 from .display import create_task_table, display_task_detail, display_stats
+from .filters import FilterPreset, SortField, SortOrder
 
 console = Console()
 
@@ -81,31 +82,41 @@ def add():
 @cli.command()
 @click.option("--status", help="Filter by status (comma-separated)")
 @click.option("--priority", help="Filter by priority (comma-separated)")
-@click.option("--tag", help="Filter by tag")
-def list(status, priority, tag):
+@click.option("--tag", help="Filter by tags (comma-separated)")
+@click.option("--preset", type=click.Choice([p.value for p in FilterPreset]), help="Use a filter preset")
+@click.option("--overdue", is_flag=True, help="Show only overdue tasks")
+@click.option("--sort", type=click.Choice([f.value for f in SortField]), default="created_at", help="Sort by field")
+@click.option("--order", type=click.Choice(["asc", "desc"]), default="desc", help="Sort order")
+def list(status, priority, tag, preset, overdue, sort, order):
     """List all tasks with optional filters."""
-    # For now, only support single status/priority filter (multi-filter in TEA-15)
-    status_filter = status.split(",")[0] if status else None
-    priority_filter = priority.split(",")[0] if priority else None
-    
     try:
-        tasks = task_manager.list_tasks(status=status_filter, priority=priority_filter)
+        # Build filter arguments
+        kwargs = {"sort_by": sort, "sort_order": order}
+        
+        if preset:
+            kwargs["preset"] = preset
+        elif overdue:
+            kwargs["preset"] = FilterPreset.OVERDUE
+        else:
+            # Parse comma-separated values
+            if status:
+                kwargs["statuses"] = [s.strip() for s in status.split(",") if s.strip()]
+            if priority:
+                kwargs["priorities"] = [p.strip() for p in priority.split(",") if p.strip()]
+            if tag:
+                kwargs["tags"] = [t.strip() for t in tag.split(",") if t.strip()]
+        
+        tasks = task_manager.list_tasks(**kwargs)
         
         if not tasks:
             console.print("[yellow]No tasks found[/yellow]")
             console.print("\nUse 'task add' to create your first task!")
             return
         
-        # Filter by tag if provided (basic implementation)
-        if tag:
-            tasks = [t for t in tasks if tag in t.tags]
-        
         table = create_task_table(tasks)
         console.print(table)
         
-        # Show stats
-        stats = task_manager.get_stats()
-        console.print(f"\n[dim]Total: {stats['total']} tasks[/dim]")
+        console.print(f"\n[dim]Found {len(tasks)} task(s)[/dim]")
         
     except TaskValidationError as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -180,10 +191,32 @@ def done(task_id):
 
 @cli.command()
 @click.argument("query")
-def search(query):
+@click.option("--regex", is_flag=True, help="Treat query as regex pattern")
+@click.option("--case-sensitive", is_flag=True, help="Case-sensitive search")
+@click.option("--sort", type=click.Choice([f.value for f in SortField]), default="created_at", help="Sort by field")
+@click.option("--order", type=click.Choice(["asc", "desc"]), default="desc", help="Sort order")
+def search(query, regex, case_sensitive, sort, order):
     """Search for tasks by keyword."""
-    console.print(f"[bold]Searching for: {query}[/bold]")
-    console.print("This feature will be implemented in TEA-15")
+    try:
+        tasks = task_manager.search_tasks(
+            query=query,
+            regex=regex,
+            case_sensitive=case_sensitive,
+            sort_by=sort,
+            sort_order=order
+        )
+        
+        if not tasks:
+            console.print(f"[yellow]No tasks found matching '{query}'[/yellow]")
+            return
+        
+        console.print(f"[bold]Found {len(tasks)} task(s) matching '{query}'[/bold]\n")
+        
+        table = create_task_table(tasks)
+        console.print(table)
+        
+    except Exception as e:
+        console.print(f"[red]Search error: {e}[/red]")
 
 
 # Linear integration commands
@@ -221,6 +254,67 @@ def stats():
     """Display task statistics."""
     stats = task_manager.get_stats()
     display_stats(stats)
+
+
+# Filter preset commands
+@cli.command()
+def active():
+    """Show active tasks (TODO and IN_PROGRESS)."""
+    try:
+        tasks = task_manager.list_tasks(preset=FilterPreset.ACTIVE)
+        
+        if not tasks:
+            console.print("[green]✨ All tasks completed! No active tasks.[/green]")
+            return
+        
+        console.print("[bold]Active Tasks[/bold]\n")
+        table = create_task_table(tasks)
+        console.print(table)
+        
+        console.print(f"\n[dim]{len(tasks)} active task(s)[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@cli.command()
+def overdue():
+    """Show overdue tasks."""
+    try:
+        tasks = task_manager.list_tasks(preset=FilterPreset.OVERDUE)
+        
+        if not tasks:
+            console.print("[green]✅ No overdue tasks![/green]")
+            return
+        
+        console.print("[bold red]Overdue Tasks[/bold red]\n")
+        table = create_task_table(tasks)
+        console.print(table)
+        
+        console.print(f"\n[red]{len(tasks)} overdue task(s)[/red]")
+        
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@cli.command()
+def today():
+    """Show tasks due today."""
+    try:
+        tasks = task_manager.list_tasks(preset=FilterPreset.TODAY)
+        
+        if not tasks:
+            console.print("[yellow]No tasks due today[/yellow]")
+            return
+        
+        console.print("[bold]Tasks Due Today[/bold]\n")
+        table = create_task_table(tasks)
+        console.print(table)
+        
+        console.print(f"\n[dim]{len(tasks)} task(s) due today[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
 
 
 # Configuration commands

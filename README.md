@@ -7,10 +7,13 @@ A powerful and intuitive command-line task management tool with Linear integrati
 - ✅ **Full CRUD Operations** - Create, read, update, and delete tasks with ease
 - 🎨 **Beautiful CLI Interface** - Rich terminal UI with colors and tables
 - 💾 **Persistent Storage** - Tasks are saved locally in JSON format
-- 🔍 **Advanced Filtering** - Search and filter tasks by status, priority, tags, and more
+- 🔍 **Advanced Filtering** - Multiple status/priority filters, date ranges, and presets
+- 🔎 **Powerful Search** - Full-text search with regex support
+- 📊 **Smart Sorting** - Sort by date, priority, status, or title
 - 🔄 **Linear Integration** - Sync your local tasks with Linear issues
 - 📊 **Smart Organization** - Priority levels, status tracking, and due dates
 - 🏷️ **Flexible Tagging** - Organize tasks with custom tags
+- ⚡ **Filter Presets** - Quick access to common views (active, overdue, today)
 
 ## Installation
 
@@ -54,25 +57,53 @@ task search "project"
 
 - `task add` - Create a new task interactively
 - `task list` - List all tasks with filtering options
+- `task search <query>` - Search tasks by keyword
 - `task show <id>` - Display detailed information about a task
 - `task update <id>` - Update task properties
 - `task delete <id>` - Delete a task
 - `task done <id>` - Mark a task as complete
+- `task active` - Show active tasks (TODO and IN_PROGRESS)
+- `task overdue` - Show overdue tasks
+- `task today` - Show tasks due today
 
 ### Filtering and Search
 
 ```bash
-# Filter by status
+# Filter by multiple statuses
 task list --status todo,in_progress
 
-# Filter by priority
+# Filter by multiple priorities
 task list --priority high,urgent
 
-# Search in title and description
-task search "keyword"
+# Filter by tags
+task list --tag work,urgent
+
+# Use filter presets
+task list --preset active      # TODO and IN_PROGRESS tasks
+task list --preset overdue     # Past due date
+task list --preset today       # Due today
+task list --preset high_priority  # HIGH and URGENT
+
+# Sort results
+task list --sort priority --order asc
+task list --sort due_date --order desc
+
+# Quick preset commands
+task active    # Show active tasks
+task overdue   # Show overdue tasks
+task today     # Show tasks due today
+
+# Search in title, description, and tags
+task search "bug fix"
+
+# Regex search
+task search "TASK-\d+" --regex
+
+# Case-sensitive search
+task search "BUG" --case-sensitive
 
 # Complex filtering
-task list --status todo --priority high --tag work
+task list --status todo --priority high,urgent --tag work --sort due_date
 ```
 
 ### Linear Integration
