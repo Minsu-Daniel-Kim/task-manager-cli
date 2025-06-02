@@ -750,5 +750,74 @@ def storage_info():
         console.print(f"[bold]Last Modified:[/bold] {info['last_modified']}")
 
 
+@cli.command()
+@click.argument("duration")
+@click.option("--message", "-m", help="Optional message for the timer session")
+@click.option("--task-id", help="Link countdown to a specific task")
+def countdown(duration, message, task_id):
+    """Start a countdown timer for productivity sessions."""
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from countdown import parse_time_input, countdown_timer, format_time
+    
+    try:
+        # Parse the duration
+        total_seconds = parse_time_input(duration)
+        
+        if total_seconds <= 0:
+            show_error("Duration must be greater than 0")
+            return
+        
+        # If task_id is provided, get task details
+        timer_message = message
+        if task_id:
+            try:
+                task = task_manager.get_task(task_id)
+                if not timer_message:
+                    timer_message = f"Working on: {task.title}"
+                else:
+                    timer_message = f"{message} (Task: {task.title})"
+                
+                # Optionally mark task as in progress
+                if task.status == TaskStatus.TODO:
+                    if confirm_action("Mark task as in progress?", default=True):
+                        task_manager.update_task(task_id, status=TaskStatus.IN_PROGRESS)
+                        show_info(f"Task {task.short_id} marked as in progress")
+                        
+            except TaskNotFoundError:
+                show_error(f"Task with ID '{task_id}' not found")
+                return
+        
+        # Show initial info
+        create_header("Countdown Timer", f"Duration: {format_time(total_seconds)}")
+        if timer_message:
+            console.print(f"[bold cyan]Session:[/bold cyan] {timer_message}")
+        console.print("[dim]Press Ctrl+C to stop the timer[/dim]\n")
+        
+        # Brief pause before starting
+        import time
+        time.sleep(1)
+        
+        # Start the countdown
+        countdown_timer(total_seconds, timer_message or "")
+        
+        # After completion, ask if task should be marked as done
+        if task_id:
+            console.print()
+            if confirm_action("Mark task as completed?", default=True):
+                task = task_manager.update_task(task_id, status=TaskStatus.DONE)
+                show_success(f"Task '{task.title}' marked as completed!")
+        
+    except ValueError as e:
+        show_error(f"Invalid duration format: {e}")
+        show_info("Valid formats: 25 (minutes), 1:30 (hour:min), 00:05:30 (hour:min:sec)")
+    except KeyboardInterrupt:
+        console.print("\n")
+        show_warning("Timer stopped by user")
+    except Exception as e:
+        show_error(f"Timer error: {e}")
+
+
 if __name__ == "__main__":
     cli()
