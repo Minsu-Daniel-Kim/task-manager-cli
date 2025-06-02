@@ -1,0 +1,152 @@
+name: Claude with Linear API Integration
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude-with-linear:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Linear Issue ID and Fetch Details
+        id: linear_context
+        run: |
+          # Extract TEA-XXX from various sources
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            TITLE="${{ github.event.issue.title }}"
+            BODY="${{ github.event.issue.body }}"
+            COMMENT="${{ github.event.comment.body }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            TITLE="${{ github.event.pull_request.title }}"
+            BODY="${{ github.event.pull_request.body }}"
+            COMMENT="${{ github.event.comment.body }}"
+          fi
+          
+          # Look for Linear issue ID in title, body, or comment
+          LINEAR_ID=$(echo "$TITLE $BODY $COMMENT" | grep -o 'TEA-[0-9]\+' | head -1 || echo "")
+          
+          if [[ -n "$LINEAR_ID" ]]; then
+            echo "Found Linear issue: $LINEAR_ID"
+            echo "linear_id=$LINEAR_ID" >> $GITHUB_OUTPUT
+            
+            # Fetch Linear issue details via GraphQL API
+            LINEAR_RESPONSE=$(curl -s -X POST https://api.linear.app/graphql \
+              -H "Authorization: Bearer ${{ secrets.LINEAR_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"query\": \"query(\$id: String!) { 
+                  issue(filter: { identifier: { eq: \$id } }) { 
+                    nodes {
+                      id, identifier, title, description, 
+                      priority { name }, 
+                      state { name },
+                      assignee { name },
+                      project { name },
+                      url
+                    }
+                  }
+                }\",
+                \"variables\": { \"id\": \"$LINEAR_ID\" }
+              }")
+            
+            # Extract issue details
+            ISSUE_TITLE=$(echo "$LINEAR_RESPONSE" | jq -r '.data.issue.nodes[0].title // "N/A"')
+            ISSUE_DESC=$(echo "$LINEAR_RESPONSE" | jq -r '.data.issue.nodes[0].description // "N/A"')
+            ISSUE_PRIORITY=$(echo "$LINEAR_RESPONSE" | jq -r '.data.issue.nodes[0].priority.name // "N/A"')
+            ISSUE_STATE=$(echo "$LINEAR_RESPONSE" | jq -r '.data.issue.nodes[0].state.name // "N/A"')
+            ISSUE_URL=$(echo "$LINEAR_RESPONSE" | jq -r '.data.issue.nodes[0].url // "N/A"')
+            
+            # Create comprehensive context for Claude
+            LINEAR_CONTEXT="
+            ## Linear Issue Context: $LINEAR_ID
+            
+            **Title**: $ISSUE_TITLE
+            **URL**: $ISSUE_URL
+            **Priority**: $ISSUE_PRIORITY
+            **Status**: $ISSUE_STATE
+            
+            **Requirements & Description**:
+            $ISSUE_DESC
+            
+            ---
+            
+            Please reference this Linear issue context when implementing features or providing assistance. 
+            All work should align with the requirements and acceptance criteria above.
+            Use the Linear issue ID ($LINEAR_ID) in commits and implementations.
+            "
+            
+            # Save to output (encode for multiline)
+            echo "linear_context<<EOF" >> $GITHUB_OUTPUT
+            echo "$LINEAR_CONTEXT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            
+            echo "Linear context fetched successfully for $LINEAR_ID"
+          else
+            echo "No Linear issue ID found"
+            echo "linear_context=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Claude with Linear Context
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          timeout_minutes: "60"
+        env:
+          # Inject Linear context into Claude's environment
+          LINEAR_CONTEXT: ${{ steps.linear_context.outputs.linear_context }}
+          LINEAR_ISSUE_ID: ${{ steps.linear_context.outputs.linear_id }}
+          
+      - name: Update Linear Issue with Progress
+        if: steps.linear_context.outputs.linear_id
+        run: |
+          # Optional: Add comment to Linear issue about GitHub activity
+          LINEAR_ID="${{ steps.linear_context.outputs.linear_id }}"
+          
+          COMMENT_BODY="🤖 **GitHub Activity Update**
+          
+          Claude has been triggered in GitHub Action for this issue.
+          
+          **GitHub Context:**
+          - Event: ${{ github.event_name }}
+          - Repository: ${{ github.repository }}
+          - Actor: ${{ github.actor }}
+          - URL: ${{ github.event.issue.html_url || github.event.pull_request.html_url }}
+          
+          Claude is now working with full Linear issue context to provide relevant assistance."
+          
+          curl -s -X POST https://api.linear.app/graphql \
+            -H "Authorization: Bearer ${{ secrets.LINEAR_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"query\": \"mutation(\$issueId: String!, \$body: String!) { 
+                commentCreate(input: { issueId: \$issueId, body: \$body }) { 
+                  success 
+                } 
+              }\",
+              \"variables\": { 
+                \"issueId\": \"$(echo '$LINEAR_RESPONSE' | jq -r '.data.issue.nodes[0].id')\", 
+                \"body\": \"$COMMENT_BODY\" 
+              }
+            }" || echo "Failed to update Linear issue"
