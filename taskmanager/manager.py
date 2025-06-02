@@ -114,7 +114,7 @@ class TaskManager:
         )
         
         self.tasks[task.id] = task
-        self._save_if_enabled()
+        self._auto_save()
         return task
     
     def get_task(self, task_id: str) -> Task:
@@ -223,7 +223,7 @@ class TaskManager:
         
         # Apply updates
         task.update(**kwargs)
-        self._save_if_enabled()
+        self._auto_save()
         
         return task
     
@@ -242,7 +242,7 @@ class TaskManager:
         """
         task = self._find_task(task_id)
         del self.tasks[task.id]
-        self._save_if_enabled()
+        self._auto_save()
         return task
     
     def mark_done(self, task_id: str) -> Task:
@@ -362,16 +362,23 @@ class TaskManager:
         task_filter = TaskFilter().with_date_range(start_date, end_date, field)
         return self.filter_tasks(task_filter)
     
-    def set_storage(self, storage):
-        """Set the storage backend for auto-save functionality."""
-        self._storage = storage
-        if self._storage and self.auto_save:
-            # Load existing tasks
-            loaded_tasks = self._storage.load()
-            if loaded_tasks:
-                self.tasks = {t.id: t for t in loaded_tasks}
+    @property
+    def storage(self):
+        """Lazy-load storage instance."""
+        if self._storage is None:
+            from .storage import get_storage
+            self._storage = get_storage()
+        return self._storage
     
-    def _save_if_enabled(self):
-        """Save tasks if auto-save is enabled and storage is configured."""
+    def _auto_save(self) -> None:
+        """Save tasks if auto-save is enabled."""
         if self.auto_save and self._storage:
-            self._storage.save(list(self.tasks.values()))
+            self.storage.save_tasks(self)
+    
+    def save(self) -> None:
+        """Manually save tasks to storage."""
+        self.storage.save_tasks(self)
+    
+    def load(self) -> None:
+        """Load tasks from storage."""
+        self.storage.load_tasks(self)
