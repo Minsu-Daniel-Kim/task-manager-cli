@@ -5,12 +5,17 @@ A powerful and intuitive command-line task management tool with Linear integrati
 ## Features
 
 - ✅ **Full CRUD Operations** - Create, read, update, and delete tasks with ease
-- 🎨 **Beautiful CLI Interface** - Rich terminal UI with colors and tables
-- 💾 **Persistent Storage** - Tasks are saved locally in JSON format
-- 🔍 **Advanced Filtering** - Search and filter tasks by status, priority, tags, and more
+- 🎨 **Beautiful CLI Interface** - Rich terminal UI with colors, tables, and interactive prompts
+- 💾 **Persistent Storage** - Tasks are automatically saved locally in JSON format
+- 🔍 **Advanced Filtering** - Multiple status/priority filters, date ranges, and presets
+- 🔎 **Powerful Search** - Full-text search with regex support
+- 📊 **Smart Sorting** - Sort by date, priority, status, or title
 - 🔄 **Linear Integration** - Sync your local tasks with Linear issues
 - 📊 **Smart Organization** - Priority levels, status tracking, and due dates
 - 🏷️ **Flexible Tagging** - Organize tasks with custom tags
+- ⚡ **Filter Presets** - Quick access to common views (active, overdue, today)
+- 🔄 **Import/Export** - Backup and share tasks with JSON export/import
+- 🎯 **Interactive Mode** - Task selection menus and confirmation prompts
 
 ## Installation
 
@@ -53,6 +58,9 @@ task update abc123 --interactive
 # Mark a task as done
 task done abc123
 
+# Search for tasks
+task search "project"
+
 # Clear all completed tasks
 task clear
 ```
@@ -87,15 +95,23 @@ task list
 
 # Filter by status
 task list --status todo
-task list -s in_progress
+task list -s in_progress,done
 
 # Filter by priority
 task list --priority high,urgent
 task list -p medium
 
 # Filter by tag
-task list --tag work
-task list -t bug
+task list --tag work,bug
+
+# Use filter presets
+task list --preset active      # TODO and IN_PROGRESS tasks
+task list --preset overdue     # Past due date
+task list --preset today       # Due today
+
+# Sort results
+task list --sort priority --order asc
+task list --sort due_date --order desc
 
 # Show summary statistics
 task list --summary
@@ -163,6 +179,23 @@ task done abc123 --undo
 task done
 ```
 
+#### `task search <query>`
+Search for tasks by keyword with advanced options.
+
+```bash
+# Basic search
+task search "bug fix"
+
+# Regex search
+task search "TASK-\d+" --regex
+
+# Case-sensitive search
+task search "BUG" --case-sensitive
+
+# Search with custom sorting
+task search "feature" --sort priority --order desc
+```
+
 ### Utility Commands
 
 #### `task today`
@@ -185,6 +218,20 @@ task clear
 
 Shows all completed tasks and asks for confirmation before deleting.
 
+#### `task active`
+Quick view of active tasks (TODO and IN_PROGRESS).
+
+```bash
+task active
+```
+
+#### `task overdue`
+Show all overdue tasks.
+
+```bash
+task overdue
+```
+
 #### `task stats`
 Display task statistics.
 
@@ -197,41 +244,78 @@ Shows breakdown by:
 - Priority (low, medium, high, urgent)
 - Total task count
 
-### Filtering and Search
+### Storage Commands
+
+#### `task export <file>`
+Export all tasks to a JSON file.
 
 ```bash
-# Filter by status
-task list --status todo,in_progress
+task export backup.json
+task export ~/Documents/tasks-2024.json
+```
 
-# Filter by priority
-task list --priority high,urgent
+#### `task import <file>`
+Import tasks from a JSON file.
 
-# Search in title and description
+```bash
+# Replace all existing tasks
+task import backup.json
+
+# Merge with existing tasks
+task import backup.json --merge
+```
+
+#### `task storage-info`
+Display storage information and data location.
+
+```bash
+task storage-info
+```
+
+## Filtering and Search
+
+### Multiple Filters
+```bash
+# Combine multiple filters
+task list --status todo,in_progress --priority high,urgent --tag work
+
+# Use filter presets for common views
+task list --preset active      # Active tasks
+task list --preset overdue     # Overdue tasks
+task list --preset today       # Due today
+task list --preset high_priority  # High and urgent
+task list --preset this_week   # Due this week
+task list --preset untagged    # Tasks without tags
+task list --preset recent      # Created in last 7 days
+```
+
+### Advanced Search
+```bash
+# Search in title, description, and tags
 task search "keyword"
 
-# Complex filtering
-task list --status todo --priority high --tag work
+# Regex search for pattern matching
+task search "^Fix.*bug$" --regex
+
+# Case-sensitive search
+task search "TODO" --case-sensitive
+
+# Search with sorting
+task search "feature" --sort priority --order asc
 ```
 
-### Linear Integration
-
-```bash
-# Configure Linear API
-task config linear
-
-# Pull issues from Linear
-task linear pull
-
-# Push a task to Linear
-task linear push <task-id>
-
-# Check sync status
-task linear status
-```
+### Sorting Options
+Available sort fields:
+- `created_at` - When the task was created (default)
+- `updated_at` - Last modification time
+- `due_date` - Task due date
+- `priority` - Task priority level
+- `status` - Task status
+- `title` - Alphabetical by title
 
 ## Configuration
 
-Task Manager stores its configuration in `~/.taskmanager/config.json`.
+Task Manager stores its configuration in `~/.taskmanager/` directory.
 
 You can also use environment variables:
 
@@ -240,6 +324,14 @@ export TASKMANAGER_DATA_DIR=/custom/path
 export LINEAR_API_KEY=your_api_key
 export LINEAR_TEAM_ID=TEAM-123
 ```
+
+## Data Storage
+
+Tasks are automatically saved to:
+- **macOS/Linux**: `~/.taskmanager/tasks.json`
+- **Windows**: `%USERPROFILE%\.taskmanager\tasks.json`
+
+Backups are created automatically before each save operation.
 
 ## Development
 

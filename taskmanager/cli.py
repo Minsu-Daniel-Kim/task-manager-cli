@@ -10,6 +10,7 @@ from rich.rule import Rule
 from .manager import TaskManager, TaskNotFoundError, TaskValidationError
 from .models import TaskStatus, TaskPriority
 from .display import create_task_table, display_task_detail, display_stats
+from .filters import FilterPreset, SortField, SortOrder
 from .utils import (
     show_spinner, prompt_date, prompt_tags, show_success, show_error,
     show_warning, show_info, create_header, confirm_action,
@@ -37,7 +38,7 @@ task_manager = get_task_manager()
 
 
 @click.group()
-@click.version_option(version="0.2.0", prog_name="Task Manager CLI")
+@click.version_option(version="0.3.0", prog_name="Task Manager CLI")
 @click.pass_context
 def cli(ctx):
     """
@@ -128,11 +129,15 @@ def add(quick):
 
 
 @cli.command(name="list")
-@click.option("--status", "-s", help="Filter by status (todo/in_progress/done)")
-@click.option("--priority", "-p", help="Filter by priority (low/medium/high/urgent)")
-@click.option("--tag", "-t", help="Filter by tag")
+@click.option("--status", "-s", help="Filter by status (comma-separated)")
+@click.option("--priority", "-p", help="Filter by priority (comma-separated)")
+@click.option("--tag", "-t", help="Filter by tags (comma-separated)")
+@click.option("--preset", type=click.Choice([p.value for p in FilterPreset]), help="Use a filter preset")
+@click.option("--overdue", is_flag=True, help="Show only overdue tasks")
+@click.option("--sort", type=click.Choice([f.value for f in SortField]), default="created_at", help="Sort by field")
+@click.option("--order", type=click.Choice(["asc", "desc"]), default="desc", help="Sort order")
 @click.option("--summary", is_flag=True, help="Show summary statistics")
-def list_tasks(status, priority, tag, summary):
+def list_tasks(status, priority, tag, preset, overdue, sort, order, summary):
     """List all tasks with optional filters."""
     # Build filter description
     filters = []
@@ -142,22 +147,35 @@ def list_tasks(status, priority, tag, summary):
         filters.append(f"priority={priority}")
     if tag:
         filters.append(f"tag={tag}")
+    if preset:
+        filters.append(f"preset={preset}")
+    if overdue:
+        filters.append("overdue")
     
     filter_desc = f" (filtered by {', '.join(filters)})" if filters else ""
     
     try:
+        # Build filter arguments
+        kwargs = {"sort_by": sort, "sort_order": order}
+        
+        if preset:
+            kwargs["preset"] = preset
+        elif overdue:
+            kwargs["preset"] = FilterPreset.OVERDUE
+        else:
+            # Parse comma-separated values
+            if status:
+                kwargs["statuses"] = [s.strip() for s in status.split(",") if s.strip()]
+            if priority:
+                kwargs["priorities"] = [p.strip() for p in priority.split(",") if p.strip()]
+            if tag:
+                kwargs["tags"] = [t.strip() for t in tag.split(",") if t.strip()]
+        
         # Get tasks with filters
         tasks = show_spinner(
             "Loading tasks...",
-            lambda: task_manager.list_tasks(
-                status=status,
-                priority=priority
-            )
+            lambda: task_manager.list_tasks(**kwargs)
         )
-        
-        # Additional tag filtering
-        if tag:
-            tasks = [t for t in tasks if tag in t.tags]
         
         if not tasks:
             show_warning(f"No tasks found{filter_desc}")
@@ -475,6 +493,39 @@ def done(task_id, undo):
 
 
 @cli.command()
+@click.argument("query")
+@click.option("--regex", is_flag=True, help="Treat query as regex pattern")
+@click.option("--case-sensitive", is_flag=True, help="Case-sensitive search")
+@click.option("--sort", type=click.Choice([f.value for f in SortField]), default="created_at", help="Sort by field")
+@click.option("--order", type=click.Choice(["asc", "desc"]), default="desc", help="Sort order")
+def search(query, regex, case_sensitive, sort, order):
+    """Search for tasks by keyword."""
+    try:
+        tasks = show_spinner(
+            f"Searching for '{query}'...",
+            lambda: task_manager.search_tasks(
+                query=query,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                sort_by=sort,
+                sort_order=order
+            )
+        )
+        
+        if not tasks:
+            show_warning(f"No tasks found matching '{query}'")
+            return
+        
+        create_header(f"Search Results", f"Found {len(tasks)} task(s) matching '{query}'")
+        
+        table = create_task_table(tasks)
+        console.print(table)
+        
+    except Exception as e:
+        show_error(f"Search error: {e}")
+
+
+@cli.command()
 def today():
     """Show tasks due today or overdue."""
     create_header("Today's Tasks", "Tasks due today or overdue")
@@ -549,12 +600,55 @@ def clear():
         show_error(f"Error clearing tasks: {e}")
 
 
+# Filter preset commands
 @cli.command()
-@click.argument("query")
-def search(query):
-    """Search for tasks by keyword."""
-    console.print(f"[bold]Searching for: {query}[/bold]")
-    console.print("This feature will be implemented in TEA-15")
+def active():
+    """Show active tasks (TODO and IN_PROGRESS)."""
+    try:
+        tasks = show_spinner(
+            "Loading active tasks...",
+            lambda: task_manager.list_tasks(preset=FilterPreset.ACTIVE)
+        )
+        
+        if not tasks:
+            show_success("✨ All tasks completed! No active tasks.")
+            return
+        
+        create_header("Active Tasks", f"{len(tasks)} active task(s)")
+        table = create_task_table(tasks)
+        console.print(table)
+        
+    except Exception as e:
+        show_error(f"Error: {e}")
+
+
+@cli.command()
+def overdue():
+    """Show overdue tasks."""
+    try:
+        tasks = show_spinner(
+            "Loading overdue tasks...",
+            lambda: task_manager.list_tasks(preset=FilterPreset.OVERDUE)
+        )
+        
+        if not tasks:
+            show_success("✅ No overdue tasks!")
+            return
+        
+        create_header("Overdue Tasks", f"{len(tasks)} overdue task(s)", style="bold red")
+        table = create_task_table(tasks)
+        console.print(table)
+        
+    except Exception as e:
+        show_error(f"Error: {e}")
+
+
+# Stats command
+@cli.command()
+def stats():
+    """Display task statistics."""
+    stats = task_manager.get_stats()
+    display_stats(stats)
 
 
 # Linear integration commands
@@ -586,14 +680,6 @@ def status():
     console.print("This feature will be implemented in TEA-16")
 
 
-# Stats command
-@cli.command()
-def stats():
-    """Display task statistics."""
-    stats = task_manager.get_stats()
-    display_stats(stats)
-
-
 # Configuration commands
 @cli.group()
 def config():
@@ -617,9 +703,9 @@ def export(export_file):
         from pathlib import Path
         export_path = Path(export_file)
         task_manager.storage.export_tasks(task_manager, export_path)
-        console.print(f"[green]✅ Exported {len(task_manager.tasks)} tasks to {export_file}[/green]")
+        show_success(f"Exported {len(task_manager.tasks)} tasks to {export_file}")
     except StorageError as e:
-        console.print(f"[red]Error: {e}[/red]")
+        show_error(f"Export failed: {e}")
 
 
 @cli.command()
@@ -632,18 +718,18 @@ def import_tasks(import_file, merge):
         import_path = Path(import_file)
         
         if not merge and task_manager.tasks:
-            if not Confirm.ask(f"This will replace all {len(task_manager.tasks)} existing tasks. Continue?"):
-                console.print("[yellow]Import cancelled[/yellow]")
+            if not confirm_action(f"This will replace all {len(task_manager.tasks)} existing tasks. Continue?"):
+                show_warning("Import cancelled")
                 return
         
         count = task_manager.storage.import_tasks(task_manager, import_path, merge=merge)
         task_manager.save()  # Save after import
         
         action = "merged" if merge else "imported"
-        console.print(f"[green]✅ Successfully {action} {count} tasks[/green]")
+        show_success(f"Successfully {action} {count} tasks")
         
     except StorageError as e:
-        console.print(f"[red]Error: {e}[/red]")
+        show_error(f"Import failed: {e}")
 
 
 @cli.command()
@@ -651,7 +737,8 @@ def storage_info():
     """Display storage information."""
     info = task_manager.storage.get_storage_info()
     
-    console.print("\n[bold cyan]Storage Information[/bold cyan]")
+    create_header("Storage Information", "Task data storage details")
+    
     console.print(f"[bold]Data Directory:[/bold] {info['data_directory']}")
     console.print(f"[bold]Tasks File:[/bold] {info['tasks_file']}")
     console.print(f"[bold]File Exists:[/bold] {'Yes' if info['file_exists'] else 'No'}")
@@ -661,7 +748,6 @@ def storage_info():
         size_kb = info['file_size'] / 1024
         console.print(f"[bold]File Size:[/bold] {size_kb:.2f} KB")
         console.print(f"[bold]Last Modified:[/bold] {info['last_modified']}")
-    console.print()
 
 
 if __name__ == "__main__":

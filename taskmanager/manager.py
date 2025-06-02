@@ -5,6 +5,7 @@ Task management logic with full CRUD operations.
 from datetime import datetime
 from typing import Dict, List, Optional, Union
 from .models import Task, TaskStatus, TaskPriority
+from .filters import TaskFilter, TaskSorter, SearchEngine, SortField, SortOrder, FilterPreset
 
 
 class TaskNotFoundError(Exception):
@@ -134,30 +135,56 @@ class TaskManager:
     
     def list_tasks(self, 
                   status: Optional[Union[str, TaskStatus]] = None,
-                  priority: Optional[Union[str, TaskPriority]] = None) -> List[Task]:
+                  priority: Optional[Union[str, TaskPriority]] = None,
+                  statuses: Optional[List[Union[str, TaskStatus]]] = None,
+                  priorities: Optional[List[Union[str, TaskPriority]]] = None,
+                  tags: Optional[List[str]] = None,
+                  preset: Optional[Union[str, FilterPreset]] = None,
+                  sort_by: Union[str, SortField] = SortField.CREATED_AT,
+                  sort_order: Union[str, SortOrder] = SortOrder.DESC) -> List[Task]:
         """
-        List tasks with optional filtering.
+        List tasks with advanced filtering and sorting.
         
         Args:
-            status: Filter by status
-            priority: Filter by priority
+            status: Filter by single status (backward compatibility)
+            priority: Filter by single priority (backward compatibility)
+            statuses: Filter by multiple statuses
+            priorities: Filter by multiple priorities
+            tags: Filter by tags
+            preset: Apply a filter preset
+            sort_by: Field to sort by
+            sort_order: Sort order (asc/desc)
             
         Returns:
             List of tasks matching criteria
         """
         tasks = list(self.tasks.values())
         
-        # Apply filters
+        # Build filter
+        task_filter = TaskFilter()
+        
+        # Handle backward compatibility
         if status is not None:
-            status = self._validate_status(status)
-            tasks = [t for t in tasks if t.status == status]
+            task_filter.with_statuses([status])
+        elif statuses:
+            task_filter.with_statuses(statuses)
         
         if priority is not None:
-            priority = self._validate_priority(priority)
-            tasks = [t for t in tasks if t.priority == priority]
+            task_filter.with_priorities([priority])
+        elif priorities:
+            task_filter.with_priorities(priorities)
         
-        # Sort by created date (newest first)
-        tasks.sort(key=lambda t: t.created_at, reverse=True)
+        if tags:
+            task_filter.with_tags(tags)
+        
+        if preset:
+            task_filter.with_preset(preset)
+        
+        # Apply filters
+        tasks = task_filter.apply(tasks)
+        
+        # Sort results
+        tasks = TaskSorter.sort(tasks, sort_by, sort_order)
         
         return tasks
     
@@ -255,6 +282,86 @@ class TaskManager:
             stats['by_priority'][priority.value] = count
         
         return stats
+    
+    def search_tasks(self, 
+                    query: str,
+                    regex: bool = False,
+                    case_sensitive: bool = False,
+                    sort_by: Union[str, SortField] = SortField.CREATED_AT,
+                    sort_order: Union[str, SortOrder] = SortOrder.DESC) -> List[Task]:
+        """
+        Search tasks by query string.
+        
+        Args:
+            query: Search query (searches in title, description, ID, and tags)
+            regex: Whether to treat query as regex pattern
+            case_sensitive: Whether search is case-sensitive
+            sort_by: Field to sort results by
+            sort_order: Sort order
+            
+        Returns:
+            List of matching tasks
+        """
+        tasks = list(self.tasks.values())
+        
+        # Apply search
+        tasks = SearchEngine.search(tasks, query, regex, case_sensitive)
+        
+        # Sort results
+        tasks = TaskSorter.sort(tasks, sort_by, sort_order)
+        
+        return tasks
+    
+    def filter_tasks(self, filter_obj: TaskFilter,
+                    sort_by: Union[str, SortField] = SortField.CREATED_AT,
+                    sort_order: Union[str, SortOrder] = SortOrder.DESC) -> List[Task]:
+        """
+        Filter tasks using a TaskFilter object.
+        
+        Args:
+            filter_obj: Pre-configured TaskFilter
+            sort_by: Field to sort results by
+            sort_order: Sort order
+            
+        Returns:
+            List of matching tasks
+        """
+        tasks = list(self.tasks.values())
+        
+        # Apply filter
+        tasks = filter_obj.apply(tasks)
+        
+        # Sort results
+        tasks = TaskSorter.sort(tasks, sort_by, sort_order)
+        
+        return tasks
+    
+    def get_overdue_tasks(self) -> List[Task]:
+        """
+        Get all overdue tasks.
+        
+        Returns:
+            List of overdue tasks (past due date and not done)
+        """
+        return self.list_tasks(preset=FilterPreset.OVERDUE)
+    
+    def get_tasks_by_date_range(self,
+                               start_date: Optional[datetime] = None,
+                               end_date: Optional[datetime] = None,
+                               field: str = 'due_date') -> List[Task]:
+        """
+        Get tasks within a date range.
+        
+        Args:
+            start_date: Start of date range
+            end_date: End of date range
+            field: Date field to filter on ('due_date', 'created_at', 'updated_at')
+            
+        Returns:
+            List of tasks within date range
+        """
+        task_filter = TaskFilter().with_date_range(start_date, end_date, field)
+        return self.filter_tasks(task_filter)
     
     @property
     def storage(self):
