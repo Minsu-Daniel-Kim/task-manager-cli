@@ -9,11 +9,25 @@ from rich.prompt import Prompt, Confirm
 from .manager import TaskManager, TaskNotFoundError, TaskValidationError
 from .models import TaskStatus, TaskPriority
 from .display import create_task_table, display_task_detail, display_stats
+from .storage import StorageError
 
 console = Console()
 
-# Global task manager instance (will be replaced with persistence in TEA-13)
-task_manager = TaskManager()
+
+def get_task_manager() -> TaskManager:
+    """Get or create the task manager instance with persistence."""
+    if not hasattr(get_task_manager, "_instance"):
+        manager = TaskManager(auto_save=True)
+        try:
+            manager.load()
+        except StorageError as e:
+            console.print(f"[yellow]Warning: Could not load tasks: {e}[/yellow]")
+        get_task_manager._instance = manager
+    return get_task_manager._instance
+
+
+# Initialize task manager on module load
+task_manager = get_task_manager()
 
 
 @click.group()
@@ -235,6 +249,62 @@ def linear():
     """Configure Linear integration."""
     console.print("[bold]Linear Configuration[/bold]")
     console.print("This feature will be implemented in TEA-16")
+
+
+# Storage commands
+@cli.command()
+@click.argument("export_file", type=click.Path())
+def export(export_file):
+    """Export tasks to a JSON file."""
+    try:
+        from pathlib import Path
+        export_path = Path(export_file)
+        task_manager.storage.export_tasks(task_manager, export_path)
+        console.print(f"[green]✅ Exported {len(task_manager.tasks)} tasks to {export_file}[/green]")
+    except StorageError as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@cli.command()
+@click.argument("import_file", type=click.Path(exists=True))
+@click.option("--merge", is_flag=True, help="Merge with existing tasks instead of replacing")
+def import_tasks(import_file, merge):
+    """Import tasks from a JSON file."""
+    try:
+        from pathlib import Path
+        import_path = Path(import_file)
+        
+        if not merge and task_manager.tasks:
+            if not Confirm.ask(f"This will replace all {len(task_manager.tasks)} existing tasks. Continue?"):
+                console.print("[yellow]Import cancelled[/yellow]")
+                return
+        
+        count = task_manager.storage.import_tasks(task_manager, import_path, merge=merge)
+        task_manager.save()  # Save after import
+        
+        action = "merged" if merge else "imported"
+        console.print(f"[green]✅ Successfully {action} {count} tasks[/green]")
+        
+    except StorageError as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@cli.command()
+def storage_info():
+    """Display storage information."""
+    info = task_manager.storage.get_storage_info()
+    
+    console.print("\n[bold cyan]Storage Information[/bold cyan]")
+    console.print(f"[bold]Data Directory:[/bold] {info['data_directory']}")
+    console.print(f"[bold]Tasks File:[/bold] {info['tasks_file']}")
+    console.print(f"[bold]File Exists:[/bold] {'Yes' if info['file_exists'] else 'No'}")
+    console.print(f"[bold]Backup Exists:[/bold] {'Yes' if info['backup_exists'] else 'No'}")
+    
+    if info.get('file_size') is not None:
+        size_kb = info['file_size'] / 1024
+        console.print(f"[bold]File Size:[/bold] {size_kb:.2f} KB")
+        console.print(f"[bold]Last Modified:[/bold] {info['last_modified']}")
+    console.print()
 
 
 if __name__ == "__main__":
