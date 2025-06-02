@@ -247,3 +247,24 @@ class TestCLI:
         assert "Task Statistics" in result.output
         assert "By Status:" in result.output
         assert "By Priority:" in result.output
+    
+    def test_countdown_command_help(self, runner):
+        """Test countdown command help."""
+        result = runner.invoke(cli, ["countdown", "--help"])
+        assert result.exit_code == 0
+        assert "Start a countdown timer" in result.output
+        assert "duration" in result.output.lower()
+        assert "--message" in result.output
+        assert "--format" in result.output
+    
+    def test_countdown_command_invalid_duration(self, runner):
+        """Test countdown command with invalid duration."""
+        result = runner.invoke(cli, ["countdown", "-1"])
+        assert result.exit_code == 0
+        assert "Duration must be a positive number" in result.output
+    
+    def test_countdown_command_zero_duration(self, runner):
+        """Test countdown command with zero duration."""
+        result = runner.invoke(cli, ["countdown", "0"])
+        assert result.exit_code == 0
+        assert "Duration must be a positive number" in result.output

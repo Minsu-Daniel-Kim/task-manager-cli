@@ -750,5 +750,114 @@ def storage_info():
         console.print(f"[bold]Last Modified:[/bold] {info['last_modified']}")
 
 
+@cli.command()
+@click.argument("duration", type=int)
+@click.option("--message", "-m", default="Time's up!", help="Message to display when countdown finishes")
+@click.option("--format", "format_type", default="hms", type=click.Choice(["hms", "seconds"], case_sensitive=False), help="Display format: 'hms' for hours:minutes:seconds or 'seconds' for total seconds")
+def countdown(duration, message, format_type):
+    """Start a countdown timer for the specified duration in seconds.
+    
+    Examples:
+    
+    task countdown 300                    # 5 minute countdown
+    
+    task countdown 60 -m "Break time!"   # 1 minute with custom message
+    
+    task countdown 3600 --format seconds # 1 hour showing seconds
+    """
+    import time
+    from rich.live import Live
+    from rich.align import Align
+    from rich.panel import Panel
+    from rich.text import Text
+    
+    if duration <= 0:
+        show_error("Duration must be a positive number")
+        return
+    
+    def format_time(seconds_remaining):
+        """Format time based on the selected format."""
+        if format_type == "seconds":
+            return f"{seconds_remaining}s"
+        else:
+            hours = seconds_remaining // 3600
+            minutes = (seconds_remaining % 3600) // 60
+            seconds = seconds_remaining % 60
+            
+            if hours > 0:
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                return f"{minutes:02d}:{seconds:02d}"
+    
+    def create_countdown_display(remaining):
+        """Create the countdown display panel."""
+        time_str = format_time(remaining)
+        
+        # Choose color based on time remaining
+        if remaining <= 10:
+            color = "red"
+            style = "bold"
+        elif remaining <= 30:
+            color = "yellow"
+            style = "bold"
+        elif remaining <= 60:
+            color = "orange"
+            style = "normal"
+        else:
+            color = "green"
+            style = "normal"
+        
+        # Create large text for countdown
+        time_text = Text(time_str, style=f"{style} {color}")
+        time_text.justify = "center"
+        
+        # Progress indicator
+        total_bars = 20
+        completed_bars = int((duration - remaining) / duration * total_bars)
+        progress_bar = "█" * completed_bars + "░" * (total_bars - completed_bars)
+        
+        panel_content = f"\n{time_text}\n\n[dim]{progress_bar}[/dim]\n\n[dim]Press Ctrl+C to stop[/dim]"
+        
+        return Panel(
+            Align.center(panel_content),
+            title="⏰ Countdown Timer",
+            border_style=color,
+            padding=(1, 2)
+        )
+    
+    show_info(f"Starting countdown for {duration} seconds...")
+    
+    try:
+        with Live(create_countdown_display(duration), refresh_per_second=1) as live:
+            for remaining in range(duration, -1, -1):
+                live.update(create_countdown_display(remaining))
+                if remaining > 0:
+                    time.sleep(1)
+        
+        # Countdown finished
+        console.print()
+        finished_panel = Panel(
+            Align.center(f"🎉 {message} 🎉"),
+            title="⏰ Countdown Complete",
+            border_style="bright_green",
+            padding=(1, 2)
+        )
+        console.print(finished_panel)
+        
+        # Play a beep sound if available
+        try:
+            import sys
+            if sys.platform.startswith('win'):
+                import winsound
+                winsound.Beep(1000, 500)  # 1000 Hz for 500ms
+            else:
+                console.bell()
+        except ImportError:
+            console.bell()
+            
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⏹️  Countdown stopped by user[/yellow]")
+
+
 if __name__ == "__main__":
     cli()
